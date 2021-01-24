@@ -3,6 +3,8 @@ package http
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha1"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +17,7 @@ import (
 var (
 	crlf       = []byte("\r\n")
 	colonSpace = []byte(": ")
+	magicStr   = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 )
 
 // Server represents server to handle http
@@ -38,7 +41,7 @@ func (srv *Server) HandShake(rwc net.Conn) error {
 			}
 			return fmt.Errorf("failed to readRequest %w", err)
 		}
-		srv.handleHandShake(w, w.req)
+		handleHandShake(w, w.req)
 		w.finishRequest()
 	}
 }
@@ -50,8 +53,58 @@ func (srv *Server) newConn(rwc net.Conn) *conn {
 	}
 }
 
-func (srv *Server) handleHandShake(w ResponseWriter, req *Request) {
+func handleHandShake(w ResponseWriter, req *Request) {
+	if err := validateRequest(req); err != nil {
+		w.SetStatus(StatusBadRequest)
+		w.SetHeader("Connection", "close")
+		fmt.Fprintf(w, "%s\n", err)
+	}
+
+	w.SetStatus(StatusSwitchingProtocols)
+	w.SetHeader("Upgrade", "websocket")
+	w.SetHeader("Connection", "Upgrade")
+	swa := calcSecWebsocketAccept(req.Header.get("Sec-WebSocket-Key"))
+	w.SetHeader("Sec-WebSocket-Accept", swa)
+	if req.Header.has("Sec-WebSocket-Protocol") {
+		// todo: check protocol to support
+		// todo: handle multiple proto case
+		w.SetHeader("Sec-WebSocket-Protocol", req.Header.get("Sec-WebSocket-Protocol"))
+	}
+	// todo: handle Sec-WebSocket-Extensions
+	// todo: handle Sec-WebSocket-Version
+
 	return
+}
+
+func validateRequest(req *Request) error {
+	// HTTP/1.1 Upgrade request
+	if req.ProtoMajor != 1 || req.ProtoMinor != 1 {
+		return fmt.Errorf("Must be HTTP/1.1")
+	}
+	if req.Method != "GET" {
+		return fmt.Errorf("Must be GET Request")
+	}
+	if !req.Header.has("Connection") || req.Header.get("Connection") != "Upgrade" {
+		return fmt.Errorf("Must send header Connection: Upgrade")
+	}
+	if !req.Header.has("Upgrade") || !strings.Contains(req.Header.get("Upgrade"), "websocket") {
+		return fmt.Errorf("Must send header Upgrade: websocket")
+	}
+
+	// Websocket headers
+	if !req.Header.has("Sec-WebSocket-Key") {
+		return fmt.Errorf("Must send header Sec-WebSocket-Key")
+	}
+	if !req.Header.has("Sec-WebSocket-Version") {
+		return fmt.Errorf("Must send header Sec-WebSocket-Version")
+	}
+
+	return nil
+}
+
+func calcSecWebsocketAccept(key string) string {
+	sha1ed := sha1.Sum(([]byte)(key + magicStr))
+	return base64.StdEncoding.EncodeToString(sha1ed[:])
 }
 
 // conn is server-side HTTP connection
@@ -92,9 +145,10 @@ func (c *conn) readRequest() (*response, error) {
 	log.Println(req)
 
 	res := &response{
-		req: req,
-		w:   bufio.NewWriter(c.rwc),
-		c:   c,
+		req:    req,
+		w:      bufio.NewWriter(c.rwc),
+		c:      c,
+		header: make(Header),
 	}
 
 	return res, nil
@@ -248,10 +302,15 @@ func (h Header) has(key string) bool {
 	return ok
 }
 
+func (h Header) set(key, value string) {
+	h[key] = []string{value}
+}
+
 // ResponseWriter is writer for HTTP response
 type ResponseWriter interface {
 	Write(p []byte) (n int, err error)
 	SetStatus(code int)
+	SetHeader(key, value string)
 }
 
 // Response represents HTTP Response
@@ -292,6 +351,10 @@ func (r *response) finishRequest() {
 
 func (r *response) SetStatus(code int) {
 	r.status = code
+}
+
+func (r *response) SetHeader(key, value string) {
+	r.header.set(key, value)
 }
 
 func (r *response) writeHeader(p []byte) {
