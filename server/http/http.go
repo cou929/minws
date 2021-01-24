@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	minwsconn "github.com/cou929/minws/server/conn"
 )
 
 var (
@@ -30,9 +32,8 @@ func NewServer() *Server {
 }
 
 // HandShake handles handshake process of websocket
-func (srv *Server) HandShake(rwc net.Conn) error {
-	c := srv.newConn(rwc)
-	c.r = bufio.NewReader(c.rwc)
+func (srv *Server) HandShake(conn *minwsconn.Conn) error {
+	c := srv.newConn(conn.Rwc)
 	for {
 		w, err := c.readRequest()
 		if err != nil {
@@ -41,8 +42,15 @@ func (srv *Server) HandShake(rwc net.Conn) error {
 			}
 			return fmt.Errorf("failed to readRequest %w", err)
 		}
-		handleHandShake(w, w.req)
+		err = handleHandShake(w, w.req)
+		if err != nil {
+			log.Printf("Failed to complete handshake %v", err)
+		}
 		w.finishRequest()
+		if err == nil {
+			conn.CompleteHandShake()
+			return nil
+		}
 	}
 }
 
@@ -50,14 +58,16 @@ func (srv *Server) newConn(rwc net.Conn) *conn {
 	return &conn{
 		server: srv,
 		rwc:    rwc,
+		r:      bufio.NewReader(rwc),
 	}
 }
 
-func handleHandShake(w ResponseWriter, req *Request) {
+func handleHandShake(w ResponseWriter, req *Request) error {
 	if err := validateRequest(req); err != nil {
 		w.SetStatus(StatusBadRequest)
 		w.SetHeader("Connection", "close")
 		fmt.Fprintf(w, "%s\n", err)
+		return err
 	}
 
 	w.SetStatus(StatusSwitchingProtocols)
@@ -73,7 +83,7 @@ func handleHandShake(w ResponseWriter, req *Request) {
 	// todo: handle Sec-WebSocket-Extensions
 	// todo: handle Sec-WebSocket-Version
 
-	return
+	return nil
 }
 
 func validateRequest(req *Request) error {

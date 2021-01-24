@@ -4,13 +4,16 @@ import (
 	"log"
 	"net"
 
+	"github.com/cou929/minws/server/conn"
 	minhttp "github.com/cou929/minws/server/http"
+	minws "github.com/cou929/minws/server/ws"
 )
 
 // Server represents server of minws
 type Server struct {
 	address string
 	http    *minhttp.Server
+	ws      *minws.Server
 }
 
 // NewServer is constructor of Server
@@ -18,6 +21,7 @@ func NewServer(address string) *Server {
 	return &Server{
 		address: address,
 		http:    minhttp.NewServer(),
+		ws:      minws.NewServer(),
 	}
 }
 
@@ -38,15 +42,17 @@ func (srv *Server) Serve() error {
 	}
 }
 
-func (srv *Server) serve(c *Conn) error {
+func (srv *Server) serve(c *conn.Conn) error {
 	defer func() {
-		c.rwc.Close()
+		c.Rwc.Close()
 	}()
 	for {
 		var err error
-		switch c.status {
-		case Initialized:
-			err = srv.http.HandShake(c.rwc)
+		switch c.Status {
+		case conn.Initialized:
+			err = srv.http.HandShake(c)
+		case conn.HandShaked:
+			err = srv.ws.HandleMessage(c)
 		}
 		if err != nil {
 			log.Println(err)
@@ -54,25 +60,9 @@ func (srv *Server) serve(c *Conn) error {
 	}
 }
 
-// Conn represents a connection
-type Conn struct {
-	rwc    net.Conn
-	status ConnStatus
-}
-
-func newConn(c net.Conn) *Conn {
-	return &Conn{
-		rwc:    c,
-		status: Initialized,
+func newConn(c net.Conn) *conn.Conn {
+	return &conn.Conn{
+		Rwc:    c,
+		Status: conn.Initialized,
 	}
 }
-
-// ConnStatus represents a status of the connection
-type ConnStatus int
-
-const (
-	// Initialized represents connection status which is not hand-shacked yet
-	Initialized ConnStatus = iota + 1
-	// HandShaked represents hand-shacked connection status
-	HandShaked
-)
