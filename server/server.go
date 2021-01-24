@@ -1,16 +1,10 @@
-package main
+package server
 
 import (
-	"log"
 	"net"
 
 	minhttp "github.com/cou929/minws/server/http"
 )
-
-func main() {
-	srv := NewServer(":5001")
-	log.Fatal(srv.Serve())
-}
 
 // Server represents server of minws
 type Server struct {
