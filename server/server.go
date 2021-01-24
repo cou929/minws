@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log"
 	"net"
 
 	minhttp "github.com/cou929/minws/server/http"
@@ -42,9 +43,13 @@ func (srv *Server) serve(c *Conn) error {
 		c.rwc.Close()
 	}()
 	for {
+		var err error
 		switch c.status {
 		case Initialized:
-			srv.http.HandShake(c.rwc)
+			err = srv.http.HandShake(c.rwc)
+		}
+		if err != nil {
+			log.Println(err)
 		}
 	}
 }

@@ -27,20 +27,16 @@ func NewServer() *Server {
 }
 
 // HandShake handles handshake process of websocket
-func (srv *Server) HandShake(rwc net.Conn) {
+func (srv *Server) HandShake(rwc net.Conn) error {
 	c := srv.newConn(rwc)
-	defer func() {
-		c.rwc.Close()
-	}()
 	c.r = bufio.NewReader(c.rwc)
 	for {
 		w, err := c.readRequest()
 		if err != nil {
 			if isCommonNetReadError(err) {
-				return
+				return nil
 			}
-			log.Printf("readRequest error %v", err)
-			return
+			return fmt.Errorf("failed to readRequest %w", err)
 		}
 		srv.handleHandShake(w, w.req)
 		w.finishRequest()
