@@ -73,6 +73,18 @@ func (srv *Server) HandleMessage(conn *minwsconn.Conn) error {
 			}
 
 			log.Printf("decoded %s\n", string(decoded))
+
+			// send
+			payload := "hello world!!"
+			bit := int8(len(payload))
+			bit = bit & 0b01111111 // mask bit off
+			message := []byte{0b10000001, byte(bit)}
+			message = append(message, ([]byte)(payload)...)
+			n, err = conn.Rwc.Write(message)
+			if err != nil {
+				return err
+			}
+			log.Println("sent byte", n, "message len", len(message))
 		}
 	}
 	return nil
