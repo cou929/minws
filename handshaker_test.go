@@ -1,4 +1,4 @@
-package http
+package minws
 
 import "testing"
 

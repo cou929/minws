@@ -1,6 +1,6 @@
-SRCS := $(shell find server -type f -name '*.go')
+SRCS := $(shell find . -type f -name '*.go')
 
 all: run
 
 run: $(SRCS)
-	go run ./server/cmd/minws
+	go run ./cmd/minws

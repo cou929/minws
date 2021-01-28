@@ -3,128 +3,35 @@ package http
 import (
 	"bufio"
 	"bytes"
-	"crypto/sha1"
-	"encoding/base64"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"strconv"
 	"strings"
 	"time"
-
-	minwsconn "github.com/cou929/minws/server/conn"
 )
 
 var (
 	crlf       = []byte("\r\n")
 	colonSpace = []byte(": ")
-	magicStr   = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 )
 
-// Server represents server to handle http
-// processes handshake
-type Server struct{}
-
-// NewServer is constructor of Server
-func NewServer() *Server {
-	return &Server{}
-}
-
-// HandShake handles handshake process of websocket
-func (srv *Server) HandShake(conn *minwsconn.Conn) error {
-	c := srv.newConn(conn.Rwc)
-	for {
-		w, err := c.readRequest()
-		if err != nil {
-			if isCommonNetReadError(err) {
-				return nil
-			}
-			return fmt.Errorf("failed to readRequest %w", err)
-		}
-		err = handleHandShake(w, w.req)
-		if err != nil {
-			log.Printf("Failed to complete handshake %v", err)
-		}
-		w.finishRequest()
-		if err == nil {
-			conn.CompleteHandShake()
-			return nil
-		}
+// NewConn is a constructor of minws HTTP connection
+func NewConn(rwc net.Conn) *Conn {
+	return &Conn{
+		rwc: rwc,
+		r:   bufio.NewReader(rwc),
 	}
 }
 
-func (srv *Server) newConn(rwc net.Conn) *conn {
-	return &conn{
-		server: srv,
-		rwc:    rwc,
-		r:      bufio.NewReader(rwc),
-	}
+// Conn is server-side HTTP connection
+type Conn struct {
+	rwc net.Conn
+	r   *bufio.Reader
 }
 
-func handleHandShake(w ResponseWriter, req *Request) error {
-	if err := validateRequest(req); err != nil {
-		w.SetStatus(StatusBadRequest)
-		w.SetHeader("Connection", "close")
-		fmt.Fprintf(w, "%s\n", err)
-		return err
-	}
-
-	w.SetStatus(StatusSwitchingProtocols)
-	w.SetHeader("Upgrade", "websocket")
-	w.SetHeader("Connection", "Upgrade")
-	swa := calcSecWebsocketAccept(req.Header.get("Sec-WebSocket-Key"))
-	w.SetHeader("Sec-WebSocket-Accept", swa)
-	if req.Header.has("Sec-WebSocket-Protocol") {
-		// todo: check protocol to support
-		// todo: handle multiple proto case
-		w.SetHeader("Sec-WebSocket-Protocol", req.Header.get("Sec-WebSocket-Protocol"))
-	}
-	// todo: handle Sec-WebSocket-Extensions
-	// todo: handle Sec-WebSocket-Version
-
-	return nil
-}
-
-func validateRequest(req *Request) error {
-	// HTTP/1.1 Upgrade request
-	if req.ProtoMajor != 1 || req.ProtoMinor != 1 {
-		return fmt.Errorf("Must be HTTP/1.1")
-	}
-	if req.Method != "GET" {
-		return fmt.Errorf("Must be GET Request")
-	}
-	if !req.Header.has("Connection") || req.Header.get("Connection") != "Upgrade" {
-		return fmt.Errorf("Must send header Connection: Upgrade")
-	}
-	if !req.Header.has("Upgrade") || !strings.Contains(req.Header.get("Upgrade"), "websocket") {
-		return fmt.Errorf("Must send header Upgrade: websocket")
-	}
-
-	// Websocket headers
-	if !req.Header.has("Sec-WebSocket-Key") {
-		return fmt.Errorf("Must send header Sec-WebSocket-Key")
-	}
-	if !req.Header.has("Sec-WebSocket-Version") {
-		return fmt.Errorf("Must send header Sec-WebSocket-Version")
-	}
-
-	return nil
-}
-
-func calcSecWebsocketAccept(key string) string {
-	sha1ed := sha1.Sum(([]byte)(key + magicStr))
-	return base64.StdEncoding.EncodeToString(sha1ed[:])
-}
-
-// conn is server-side HTTP connection
-type conn struct {
-	server *Server
-	rwc    net.Conn
-	r      *bufio.Reader
-}
-
-func (c *conn) readRequest() (*response, error) {
+// ReadRequest parses request
+func (c *Conn) ReadRequest() (*Response, error) {
 	req := &Request{}
 
 	// ex. `GET /index.html HTTP/1.0`
@@ -154,8 +61,8 @@ func (c *conn) readRequest() (*response, error) {
 
 	log.Println(req)
 
-	res := &response{
-		req:    req,
+	res := &Response{
+		Req:    req,
 		w:      bufio.NewWriter(c.rwc),
 		c:      c,
 		header: make(Header),
@@ -164,7 +71,7 @@ func (c *conn) readRequest() (*response, error) {
 	return res, nil
 }
 
-func (c *conn) readLine() (string, error) {
+func (c *Conn) readLine() (string, error) {
 	line, err := c.readLineByteSlice()
 	if err != nil {
 		return "", err
@@ -172,7 +79,7 @@ func (c *conn) readLine() (string, error) {
 	return string(line), nil
 }
 
-func (c *conn) readLineByteSlice() ([]byte, error) {
+func (c *Conn) readLineByteSlice() ([]byte, error) {
 	var line []byte
 	for {
 		l, more, err := c.r.ReadLine()
@@ -187,7 +94,7 @@ func (c *conn) readLineByteSlice() ([]byte, error) {
 	return line, nil
 }
 
-func (c *conn) readHeader() (Header, error) {
+func (c *Conn) readHeader() (Header, error) {
 	res := make(Header)
 	for {
 		// Todo: read continued line
@@ -273,19 +180,6 @@ func headerValueContainsToken(values []string, token string) bool {
 	return false
 }
 
-func isCommonNetReadError(err error) bool {
-	if err == io.EOF { // read EOF
-		return true
-	}
-	if neterr, ok := err.(net.Error); ok && neterr.Timeout() { // tcp timeout error
-		return true
-	}
-	if oe, ok := err.(*net.OpError); ok && oe.Op == "read" { // tcp read error
-		return true
-	}
-	return false
-}
-
 // Request represents HTTP Request
 type Request struct {
 	Method     string
@@ -300,14 +194,16 @@ type Request struct {
 // Header represents HTTP header
 type Header map[string][]string
 
-func (h Header) get(key string) string {
+// Get returns header value
+func (h Header) Get(key string) string {
 	if v := h[key]; len(v) > 0 {
 		return v[0]
 	}
 	return ""
 }
 
-func (h Header) has(key string) bool {
+// Has checks header contains key
+func (h Header) Has(key string) bool {
 	_, ok := h[key]
 	return ok
 }
@@ -324,10 +220,10 @@ type ResponseWriter interface {
 }
 
 // Response represents HTTP Response
-type response struct {
-	req             *Request
+type Response struct {
+	Req             *Request
 	w               *bufio.Writer
-	c               *conn
+	c               *Conn
 	wroteHeader     bool
 	status          int
 	header          Header
@@ -335,7 +231,7 @@ type response struct {
 	closeAfterReply bool
 }
 
-func (r *response) Write(p []byte) (int, error) {
+func (r *Response) Write(p []byte) (int, error) {
 	if !r.wroteHeader {
 		if r.status == 0 {
 			r.SetStatus(StatusOK)
@@ -349,7 +245,8 @@ func (r *response) Write(p []byte) (int, error) {
 	return i, nil
 }
 
-func (r *response) finishRequest() {
+// FinishRequest finalizes request and send respnose to client
+func (r *Response) FinishRequest() {
 	if !r.wroteHeader {
 		if r.status == 0 {
 			r.SetStatus(StatusOK)
@@ -359,15 +256,17 @@ func (r *response) finishRequest() {
 	r.w.Flush()
 }
 
-func (r *response) SetStatus(code int) {
+// SetStatus set response status code
+func (r *Response) SetStatus(code int) {
 	r.status = code
 }
 
-func (r *response) SetHeader(key, value string) {
+// SetHeader set response header
+func (r *Response) SetHeader(key, value string) {
 	r.header.set(key, value)
 }
 
-func (r *response) writeHeader(p []byte) {
+func (r *Response) writeHeader(p []byte) {
 	if r.wroteHeader {
 		return
 	}
@@ -375,7 +274,7 @@ func (r *response) writeHeader(p []byte) {
 
 	// status line
 	ver := "1.1"
-	if r.req.ProtoMajor == 1 && r.req.ProtoMinor < 1 {
+	if r.Req.ProtoMajor == 1 && r.Req.ProtoMinor < 1 {
 		ver = "1.0"
 	}
 	fmt.Fprintf(r.w, "HTTP/%s %d %s\r\n", ver, r.status, statusText[r.status])
@@ -392,16 +291,16 @@ func (r *response) writeHeader(p []byte) {
 
 	// connection
 	exh.connection = "keep-alive"
-	if r.header.has("Connection") {
-		exh.connection = r.header.get("Connection")
+	if r.header.Has("Connection") {
+		exh.connection = r.header.Get("Connection")
 	}
 	if r.closeAfterReply {
 		exh.connection = "close"
 	}
 
 	// date
-	if r.header.has("Date") {
-		exh.date = []byte(r.header.get("Date"))
+	if r.header.Has("Date") {
+		exh.date = []byte(r.header.Get("Date"))
 	} else {
 		exh.date = appendTime(exh.date, time.Now())
 	}
