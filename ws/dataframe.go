@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 )
@@ -54,40 +55,29 @@ func NewDataFrameFromReader(r io.Reader) (*DataFrame, error) {
 	df := &DataFrame{}
 
 	buf := make([]byte, 2)
-	n, err := r.Read(buf)
-	if err != nil {
-		return nil, err
-	}
-	if n != 2 {
-		return nil, fmt.Errorf("invalid frame format %#b, want len %d, got len %d", buf, 2, n)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return nil, fmt.Errorf("Failed to read first 16 bit %w", err)
 	}
 
 	df.fin = buf[0]>>7 == 1
 	df.opCode = OpCode(buf[0] & 0b00001111)
 	df.mask = buf[1]>>7 == 1
-	df.payloadLen = int(buf[1] & 0b01111111)
-
-	if df.payloadLen >= 126 {
-		return nil, fmt.Errorf("extended payload length is not supported yet")
-	}
-
-	mk := make([]byte, 4)
-	n, err = r.Read(mk)
+	leadingPayloadLen := int(buf[1] & 0b01111111)
+	payloadLen, err := readExtendedPayloadLen(r, leadingPayloadLen)
 	if err != nil {
 		return nil, err
 	}
-	if n != 4 {
-		return nil, fmt.Errorf("invalid frame format %#b, want len %d, got len %d", mk, 4, n)
+	df.payloadLen = payloadLen
+
+	mk := make([]byte, 4)
+	if _, err := io.ReadFull(r, mk); err != nil {
+		return nil, fmt.Errorf("Failed to read masking key %w", err)
 	}
 	copy(df.maskingKey[:], mk)
 
 	encoded := make([]byte, df.payloadLen)
-	n, err = r.Read(encoded)
-	if err != nil {
-		return nil, err
-	}
-	if n != df.payloadLen {
-		return nil, fmt.Errorf("invalid frame format %#b, want len %d, got len %d", encoded, df.payloadLen, n)
+	if _, err := io.ReadFull(r, encoded); err != nil {
+		return nil, fmt.Errorf("Failed to read payload %w", err)
 	}
 	df.rawPayload = encoded
 
@@ -135,4 +125,32 @@ func (d *DataFrame) Frame() []byte {
 	}
 	res = append(res, ([]byte)(d.payload)...)
 	return res
+}
+
+func readExtendedPayloadLen(r io.Reader, leadingPayloadLen int) (int, error) {
+	if leadingPayloadLen < 126 {
+		return leadingPayloadLen, nil
+	}
+
+	var res int
+	switch leadingPayloadLen {
+	case 126:
+		bl := 2
+		buf := make([]byte, bl)
+		if _, err := io.ReadFull(r, buf); err != nil {
+			return 0, fmt.Errorf("Failed to read extended payload length %w", err)
+		}
+		l := binary.BigEndian.Uint16(buf)
+		res = int(l)
+	case 127:
+		bl := 8
+		buf := make([]byte, bl)
+		if _, err := io.ReadFull(r, buf); err != nil {
+			return 0, fmt.Errorf("Failed to read extended payload length %w", err)
+		}
+		l := binary.BigEndian.Uint64(buf)
+		res = int(l)
+	}
+
+	return res, nil
 }
