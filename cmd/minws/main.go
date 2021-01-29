@@ -21,18 +21,24 @@ func main() {
 		go func(tcpConn net.Conn) {
 			c, err := minws.HandShake(tcpConn)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				c.Close()
+				return
 			}
 			defer c.Close()
 			for {
 				msg, err := c.ReadMessage()
 				if err != nil {
-					log.Fatal(err)
+					log.Println(err)
+					c.Close()
+					return
 				}
 				log.Println("on message", msg)
 				err = c.SendMessage("Hello World!")
 				if err != nil {
-					log.Fatal(err)
+					log.Println(err)
+					c.Close()
+					return
 				}
 			}
 		}(conn)
