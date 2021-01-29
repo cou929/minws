@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -34,32 +33,23 @@ type Conn struct {
 func (c *Conn) ReadRequest() (*Response, error) {
 	req := &Request{}
 
-	// ex. `GET /index.html HTTP/1.0`
-	firstLine, err := c.readLine()
+	firstLine, err := c.readLineByteSlice()
 	if err != nil {
 		return nil, err
 	}
 	var ok bool
-	req.Method, req.RequestURI, req.Proto, ok = parseRequestLine(firstLine)
+	req.Method, req.RequestURI, req.Proto, ok = parseRequestLine(string(firstLine))
 	if !ok {
-		return nil, fmt.Errorf("Invalid first line %s", firstLine)
+		return nil, fmt.Errorf("Invalid first line %s", string(firstLine))
 	}
 	if req.ProtoMajor, req.ProtoMinor, ok = parseHTTPVersion(req.Proto); !ok {
 		return nil, fmt.Errorf("Invalid proto version %s", req.Proto)
 	}
 
-	// Todo: parse request uri
-
 	req.Header, err = c.readHeader()
 	if err != nil {
 		return nil, err
 	}
-
-	req.Close = shouldClose(req.ProtoMajor, req.ProtoMinor, req.Header)
-
-	// Todo: read body
-
-	log.Println(req)
 
 	res := &Response{
 		Req:    req,
@@ -69,14 +59,6 @@ func (c *Conn) ReadRequest() (*Response, error) {
 	}
 
 	return res, nil
-}
-
-func (c *Conn) readLine() (string, error) {
-	line, err := c.readLineByteSlice()
-	if err != nil {
-		return "", err
-	}
-	return string(line), nil
 }
 
 func (c *Conn) readLineByteSlice() ([]byte, error) {
@@ -97,7 +79,6 @@ func (c *Conn) readLineByteSlice() ([]byte, error) {
 func (c *Conn) readHeader() (Header, error) {
 	res := make(Header)
 	for {
-		// Todo: read continued line
 		kv, err := c.readLineByteSlice()
 		if len(kv) == 0 {
 			return res, err
@@ -118,7 +99,7 @@ func (c *Conn) readHeader() (Header, error) {
 			i++
 		}
 		value := string(kv[i:])
-		res[key] = append(res[key], value)
+		res[key] = value
 
 		if err != nil {
 			return res, err
@@ -156,20 +137,6 @@ func parseHTTPVersion(vers string) (major, minor int, ok bool) {
 	return major, minor, true
 }
 
-func shouldClose(major, minor int, header Header) bool {
-	// HTTP 0.9 has no keepalive
-	if major < 1 {
-		return true
-	}
-	conv := header["Connection"]
-	hasClose := headerValueContainsToken(conv, "close")
-	if major == 1 && minor == 0 {
-		return hasClose || !headerValueContainsToken(conv, "keep-alive")
-	}
-	// HTTP/1.1+ are default keep-alive
-	return hasClose
-}
-
 func headerValueContainsToken(values []string, token string) bool {
 	for _, v := range values {
 		// Todo: parse value
@@ -188,16 +155,15 @@ type Request struct {
 	ProtoMajor int
 	ProtoMinor int
 	Header     Header
-	Close      bool
 }
 
 // Header represents HTTP header
-type Header map[string][]string
+type Header map[string]string
 
 // Get returns header value
 func (h Header) Get(key string) string {
 	if v := h[key]; len(v) > 0 {
-		return v[0]
+		return v
 	}
 	return ""
 }
@@ -209,7 +175,7 @@ func (h Header) Has(key string) bool {
 }
 
 func (h Header) set(key, value string) {
-	h[key] = []string{value}
+	h[key] = value
 }
 
 // ResponseWriter is writer for HTTP response
@@ -221,14 +187,13 @@ type ResponseWriter interface {
 
 // Response represents HTTP Response
 type Response struct {
-	Req             *Request
-	w               *bufio.Writer
-	c               *Conn
-	wroteHeader     bool
-	status          int
-	header          Header
-	contentLength   int
-	closeAfterReply bool
+	Req           *Request
+	w             *bufio.Writer
+	c             *Conn
+	wroteHeader   bool
+	status        int
+	header        Header
+	contentLength int
 }
 
 func (r *Response) Write(p []byte) (int, error) {
@@ -274,15 +239,11 @@ func (r *Response) writeHeader(p []byte) {
 
 	// status line
 	ver := "1.1"
-	if r.Req.ProtoMajor == 1 && r.Req.ProtoMinor < 1 {
-		ver = "1.0"
-	}
 	fmt.Fprintf(r.w, "HTTP/%s %d %s\r\n", ver, r.status, statusText[r.status])
 
 	exh := extraHeader{}
 
 	// content-type
-	// todo: DetectContentType
 	exh.contentType = "text/plain; charset=utf-8"
 
 	// content-length
@@ -294,9 +255,6 @@ func (r *Response) writeHeader(p []byte) {
 	if r.header.Has("Connection") {
 		exh.connection = r.header.Get("Connection")
 	}
-	if r.closeAfterReply {
-		exh.connection = "close"
-	}
 
 	// date
 	if r.header.Has("Date") {
@@ -307,7 +265,7 @@ func (r *Response) writeHeader(p []byte) {
 
 	// other headers
 	for k, v := range r.header {
-		fmt.Fprintf(r.w, "%s: %s\r\n", k, v[0])
+		fmt.Fprintf(r.w, "%s: %s\r\n", k, v)
 	}
 
 	exh.Write(r.w)
