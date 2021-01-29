@@ -26,6 +26,7 @@ function send() {
         type: "message",
         date: Date.now()
     };
-    connection.send(JSON.stringify(msg));
+    let payload = document.getElementById('useBinary').checked ? new Blob([msg]) : JSON.stringify(msg);
+    connection.send(payload);
     document.getElementById("debug").innerHTML = "";
 }

@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/cou929/minws"
+	"github.com/cou929/minws/ws"
 )
 
 func main() {
@@ -27,18 +28,34 @@ func main() {
 			}
 			defer c.Close()
 			for {
-				msg, err := c.ReadMessage()
+				df, err := c.ReadMessage()
 				if err != nil {
 					log.Println(err)
 					c.Close()
 					return
 				}
-				log.Println("on message", msg)
-				err = c.SendMessage("Hello World!")
-				if err != nil {
-					log.Println(err)
-					c.Close()
-					return
+				switch df.OpCode {
+				case ws.OpCodeText:
+					msg := string(df.Message())
+					log.Println("on text message", msg)
+					err = c.SendTextMessage("echoed: " + msg)
+					if err != nil {
+						log.Println(err)
+						c.Close()
+						return
+					}
+				case ws.OpCodeBinary:
+					msg := df.Message()
+					log.Println("on binary message", msg)
+					msg = append([]byte{1}, msg...)
+					err = c.SendBinaryMessage(msg)
+					if err != nil {
+						log.Println(err)
+						c.Close()
+						return
+					}
+				default:
+					log.Println("not message", df.OpCode)
 				}
 			}
 		}(conn)

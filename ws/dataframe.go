@@ -9,7 +9,7 @@ import (
 // DataFrame represents data frames of WebSocket protocol
 type DataFrame struct {
 	fin        bool
-	opCode     OpCode
+	OpCode     OpCode
 	mask       bool
 	payloadLen int
 	maskingKey [4]byte
@@ -60,7 +60,7 @@ func NewDataFrameFromReader(r io.Reader) (*DataFrame, error) {
 	}
 
 	df.fin = buf[0]>>7 == 1
-	df.opCode = OpCode(buf[0] & 0b00001111)
+	df.OpCode = OpCode(buf[0] & 0b00001111)
 	df.mask = buf[1]>>7 == 1
 	leadingPayloadLen := int(buf[1] & 0b01111111)
 	payloadLen, err := readExtendedPayloadLen(r, leadingPayloadLen)
@@ -84,22 +84,34 @@ func NewDataFrameFromReader(r io.Reader) (*DataFrame, error) {
 	return df, nil
 }
 
-// NewDataFrameFromMessage build DataFrame from message to send
-func NewDataFrameFromMessage(msg string, mask bool) (*DataFrame, error) {
+// NewDataFrameFromTextMessage build DataFrame from text message to send
+func NewDataFrameFromTextMessage(msg string, mask bool) (*DataFrame, error) {
 	df := &DataFrame{
 		payload:    []byte(msg),
 		mask:       mask,
 		fin:        true,
-		opCode:     OpCodeText,
+		OpCode:     OpCodeText,
+		payloadLen: len(msg),
+	}
+	return df, nil
+}
+
+// NewDataFrameFromBinaryMessage build DataFrame from binary message to send
+func NewDataFrameFromBinaryMessage(msg []byte, mask bool) (*DataFrame, error) {
+	df := &DataFrame{
+		payload:    msg,
+		mask:       mask,
+		fin:        true,
+		OpCode:     OpCodeBinary,
 		payloadLen: len(msg),
 	}
 	return df, nil
 }
 
 // Message returns payload value
-func (d *DataFrame) Message() string {
+func (d *DataFrame) Message() []byte {
 	if d.payload != nil {
-		return string(d.payload)
+		return d.payload
 	}
 
 	decoded := make([]byte, d.payloadLen)
@@ -108,7 +120,7 @@ func (d *DataFrame) Message() string {
 	}
 	d.payload = decoded
 
-	return string(d.payload)
+	return d.payload
 }
 
 // Frame build DataFrame binary representation
@@ -118,7 +130,7 @@ func (d *DataFrame) Frame() []byte {
 	if d.fin {
 		fin = 1
 	}
-	res[0] = byte((fin << 7) | int(d.opCode))
+	res[0] = byte((fin << 7) | int(d.OpCode))
 	res[1] = byte(d.payloadLen)
 	if d.mask {
 		res[1] = res[1] | 0b10000000
