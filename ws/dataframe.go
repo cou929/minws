@@ -20,19 +20,14 @@ type DataFrame struct {
 // OpCode is opcode of WebSocket protocol
 type OpCode int
 
+// see: https://tools.ietf.org/html/rfc6455#section-5.2
 const (
-	// OpCodeContinuation represents opcode %x0
 	OpCodeContinuation OpCode = 0x0
-	// OpCodeText represents opcode %x1
-	OpCodeText = 0x1
-	// OpCodeBinary represents opcode %x2
-	OpCodeBinary = 0x2
-	// OpCodeClose represents opcode 0x8
-	OpCodeClose = 0x8
-	// OpCodePing represents opcode 0x9
-	OpCodePing = 0x9
-	// OpCodePong represents opcode 0xA
-	OpCodePong = 0xA
+	OpCodeText                = 0x1
+	OpCodeBinary              = 0x2
+	OpCodeClose               = 0x8
+	OpCodePing                = 0x9
+	OpCodePong                = 0xA
 )
 
 /*
