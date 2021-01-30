@@ -124,6 +124,19 @@ func (d *DataFrame) Message() []byte {
 	return d.payload
 }
 
+// CloseStatusCode returns closure status code sent from client
+func (d *DataFrame) CloseStatusCode() (int, error) {
+	if d.OpCode != OpCodeClose {
+		return 0, fmt.Errorf("not close frame")
+	}
+	decoded := d.Message()
+	if len(decoded) < 2 {
+		return 0, fmt.Errorf("invalid status code %v", decoded)
+	}
+	status := binary.BigEndian.Uint16(decoded[0:2])
+	return int(status), nil
+}
+
 // Frame build DataFrame binary representation
 func (d *DataFrame) Frame() []byte {
 	res := make([]byte, 2)

@@ -54,6 +54,33 @@ func main() {
 						c.Close()
 						return
 					}
+					c.Close()
+				case ws.OpCodeClose:
+					status, err := (df.CloseStatusCode())
+					if err != nil {
+						log.Println(err)
+						c.Close()
+						return
+					}
+					log.Println("on close", status, ws.StatusText(status))
+					switch c.State {
+					case ws.Established:
+						err = c.SendCloseFrame(status)
+						if err != nil {
+							log.Println(err)
+							c.Close()
+							return
+						}
+						c.Close()
+						return
+					case ws.Closing:
+						c.Close()
+						return
+					case ws.Closed:
+						log.Println("received close frame on closed state conn")
+						c.Close()
+						return
+					}
 				case ws.OpCodePing:
 					msg := df.Message()
 					log.Println("on ping", msg)
