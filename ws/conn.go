@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"time"
 )
 
 // Conn represents a WebSocket connection
@@ -79,4 +80,19 @@ func (c *Conn) SendBinaryMessage(msg []byte) error {
 // Close closes connection
 func (c *Conn) Close() {
 	return
+}
+
+// Ping sends a ping to client
+func (c *Conn) Ping() error {
+	msg := fmt.Sprintf("ping %d", time.Now().Unix())
+	df, err := NewDataFrameFromTextMessage(msg, false)
+	if err != nil {
+		return err
+	}
+	df.OpCode = OpCodePing
+	_, err = c.Rwc.Write(df.Frame())
+	if err != nil {
+		return err
+	}
+	return nil
 }

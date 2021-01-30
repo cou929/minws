@@ -54,6 +54,18 @@ func main() {
 						c.Close()
 						return
 					}
+				case ws.OpCodePing:
+					msg := df.Message()
+					log.Println("on ping", msg)
+					err := c.SendBinaryMessage(msg)
+					if err != nil {
+						log.Println(err)
+						c.Close()
+						return
+					}
+				case ws.OpCodePong:
+					msg := df.Message()
+					log.Println("on pong", string(msg))
 				default:
 					log.Println("not message", df.OpCode)
 				}

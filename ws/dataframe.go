@@ -27,6 +27,12 @@ const (
 	OpCodeText = 0x1
 	// OpCodeBinary represents opcode %x2
 	OpCodeBinary = 0x2
+	// OpCodeClose represents opcode 0x8
+	OpCodeClose = 0x8
+	// OpCodePing represents opcode 0x9
+	OpCodePing = 0x9
+	// OpCodePong represents opcode 0xA
+	OpCodePong = 0xA
 )
 
 /*
